@@ -70,7 +70,7 @@ const MOCK_CONTRACTS = [
   { id:"CTR-002", title:"Tokenized RWA Bond SP-447",     value:"120,000 USDC", status:"pending",    agent:"LEX",   progress:23  },
   { id:"CTR-003", title:"USDC→EURC StableFX Settle",     value:"9,200 USDC",   status:"completed",  agent:"VOLT",  progress:100 },
   { id:"CTR-004", title:"Supplier Invoice DvP #88",      value:"3,750 USDC",   status:"executing",  agent:"NEXUS", progress:91  },
-  { id:"CTR-005", title:"Yield Strategy — USYC Apr",     value:"250,000 USDC", status:"executing",  agent:"VOLT",  progress:44  },
+  { id:"CTR-005", title:"Yield Strategy — USYC APR",     value:"250,000 USDC", status:"executing",  agent:"VOLT",  progress:44  },
 ];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -78,20 +78,44 @@ function shortAddr(addr) {
   return addr ? `${addr.slice(0,6)}...${addr.slice(-4)}` : "";
 }
 
+function formatUnitsSafe(rawValue, decimals, minFractionDigits, maxFractionDigits) {
+  if (rawValue === null || rawValue === undefined) return "0.00";
+  const raw = BigInt(rawValue);
+  const sign = raw < 0n ? "-" : "";
+  const abs = raw < 0n ? -raw : raw;
+
+  const base = 10n ** BigInt(decimals);
+  const integer = abs / base;
+  const fraction = abs % base;
+
+  const formattedInteger = integer.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  if (maxFractionDigits <= 0) return `${sign}${formattedInteger}`;
+
+  const paddedFraction = fraction.toString().padStart(decimals, "0");
+  let shownFraction = paddedFraction.slice(0, maxFractionDigits);
+
+  while (shownFraction.length > minFractionDigits && shownFraction.endsWith("0")) {
+    shownFraction = shownFraction.slice(0, -1);
+  }
+
+  while (shownFraction.length < minFractionDigits) {
+    shownFraction += "0";
+  }
+
+  return `${sign}${formattedInteger}.${shownFraction}`;
+}
+
 // Arc native USDC balance: 18 decimals (EVM standard for eth_getBalance).
 // ERC-20 USDC interface: 6 decimals. Use ERC-20 calls for token transfers.
 // Docs: docs.arc.network/arc/references/contract-addresses
 function formatNativeUsdc(rawHex) {
   if (!rawHex) return "0.000000";
-  const wei = BigInt(rawHex);
   // Native balance has 18 decimals precision; display as USDC (divide by 1e18)
-  const val = Number(wei) / 1e18;
-  return val.toLocaleString("en-US", { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+  return formatUnitsSafe(rawHex, 18, 6, 6);
 }
 function formatUsdc(raw, decimals = 6) {
   if (!raw) return "0.00";
-  const val = Number(BigInt(raw)) / Math.pow(10, decimals);
-  return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  return formatUnitsSafe(raw, decimals, 2, 4);
 }
 
 // Minimal ethers-like JSON-RPC wrapper (no npm needed inside artifact)
@@ -176,8 +200,17 @@ function detectClipboardHijack(original, pasted) {
   if (original.length < 10) return false;
   // Mais de 4 chars diferentes no início/fim = suspeito
   const origStart = original.slice(0, 6);
+  const origEnd = original.slice(-6);
   const pastStart = pasted.slice(0, 6);
-  return origStart !== pastStart;
+  const pastEnd = pasted.slice(-6);
+
+  let diffCount = 0;
+  for (let i = 0; i < 6; i++) {
+    if (origStart[i] !== pastStart[i]) diffCount++;
+    if (origEnd[i] !== pastEnd[i]) diffCount++;
+  }
+
+  return diffCount > 4;
 }
 
 // ── Análise de risco de uma transação ────────────────────────────────────────
