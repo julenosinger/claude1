@@ -73,6 +73,14 @@ const MOCK_CONTRACTS = [
   { id:"CTR-005", title:"Yield Strategy — USYC Apr",     value:"250,000 USDC", status:"executing",  agent:"VOLT",  progress:44  },
 ];
 
+const AUTONOMOUS_RUNBOOK = [
+  { key: "due_diligence", label: "Due diligence", owner: "IRIS", payout: 0 },
+  { key: "contract_sign", label: "Contract signature", owner: "LEX", payout: 0.2 },
+  { key: "milestone_1", label: "Milestone #1", owner: "NEXUS", payout: 0.35 },
+  { key: "milestone_2", label: "Milestone #2", owner: "NEXUS", payout: 0.35 },
+  { key: "final_settlement", label: "Final settlement", owner: "VOLT", payout: 0.1 },
+];
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function shortAddr(addr) {
   return addr ? `${addr.slice(0,6)}...${addr.slice(-4)}` : "";
@@ -4630,6 +4638,26 @@ export default function ArcAgentOS() {
     { id:"0x7d…c33", type:"FX Swap",  amount:"BRL→USDC",   time:"3m",  agent:"NEXUS", confirmed:true },
     { id:"0x2e…d77", type:"KYC",      amount:"Verified",    time:"5m",  agent:"IRIS",  confirmed:true },
   ]);
+  const [autoContracts, setAutoContracts] = useState([
+    {
+      id: "AUTO-901",
+      name: "Fornecedor Logística LatAm",
+      totalUsdc: 82000,
+      releasedUsdc: 16400,
+      stepIndex: 1,
+      status: "running",
+      nextCheckIn: "2m",
+    },
+    {
+      id: "AUTO-902",
+      name: "Marketplace Payroll Global",
+      totalUsdc: 146500,
+      releasedUsdc: 0,
+      stepIndex: 0,
+      status: "running",
+      nextCheckIn: "5m",
+    },
+  ]);
 
   // Chat
   const [chatMsg, setChatMsg] = useState("");
@@ -4661,6 +4689,50 @@ export default function ArcAgentOS() {
         }, ...prev.slice(0,9)]);
       }
     }, 3200);
+    return () => clearInterval(iv);
+  }, []);
+
+  // ── Autonomous contracts: advance workflow and release payments automatically.
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setAutoContracts((prev) => {
+        let generatedTx = null;
+        const next = prev.map((c) => {
+          if (c.status !== "running") return c;
+          if (Math.random() < 0.62) return { ...c, nextCheckIn: `${Math.floor(Math.random() * 6) + 1}m` };
+
+          const nextStep = Math.min(c.stepIndex + 1, AUTONOMOUS_RUNBOOK.length - 1);
+          const step = AUTONOMOUS_RUNBOOK[nextStep];
+          const delta = Math.round(c.totalUsdc * step.payout);
+          const releasedUsdc = Math.min(c.totalUsdc, c.releasedUsdc + delta);
+          const finished = nextStep === AUTONOMOUS_RUNBOOK.length - 1;
+
+          generatedTx = {
+            id: `0x${Math.random().toString(16).slice(2, 6)}…${Math.random().toString(16).slice(2, 5)}`,
+            type: "Autonomous payout",
+            amount: `+${delta.toLocaleString("en-US")} USDC`,
+            time: "agora",
+            agent: step.owner,
+            confirmed: true,
+          };
+
+          return {
+            ...c,
+            stepIndex: nextStep,
+            releasedUsdc,
+            status: finished ? "settled" : "running",
+            nextCheckIn: finished ? "—" : `${Math.floor(Math.random() * 6) + 1}m`,
+          };
+        });
+
+        if (generatedTx) {
+          setLiveTxs((txs) => [generatedTx, ...txs.slice(0, 9)]);
+        }
+
+        return next;
+      });
+    }, 6500);
+
     return () => clearInterval(iv);
   }, []);
 
@@ -5068,6 +5140,45 @@ Responda de forma concisa e técnica (máximo 3 frases). Use termos como "execut
 
             {activeTab==="contracts" ? (
               <div>
+                <div style={{ marginBottom:14, background:"rgba(0,255,178,0.03)", border:"1px solid rgba(0,255,178,0.15)", borderRadius:12, padding:12 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                    <div>
+                      <div style={{ fontSize:8, color:"#00FFB2", letterSpacing:1.8, marginBottom:2 }}>// AUTONOMOUS CONTRACT ORCHESTRATION</div>
+                      <div style={{ fontSize:10, color:"#8eead2" }}>Agentes validam cláusulas, liberam marcos e liquidam pagamentos sem intervenção manual.</div>
+                    </div>
+                    <div style={{ fontSize:9, color:"#00FFB2", fontFamily:"monospace" }}>
+                      {autoContracts.filter(c => c.status === "running").length} RUNNING
+                    </div>
+                  </div>
+
+                  {autoContracts.map((c) => {
+                    const step = AUTONOMOUS_RUNBOOK[c.stepIndex];
+                    const pct = Math.round((c.releasedUsdc / c.totalUsdc) * 100);
+                    return (
+                      <div key={c.id} style={{ borderTop:"1px solid rgba(255,255,255,0.06)", paddingTop:9, marginTop:9 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                          <div>
+                            <div style={{ fontSize:11, color:"#ddd" }}>{c.name}</div>
+                            <div style={{ fontSize:9, color:"#666", fontFamily:"monospace" }}>{c.id} • etapa: {step.label}</div>
+                          </div>
+                          <div style={{ textAlign:"right" }}>
+                            <div style={{ fontSize:11, color:"#fff", fontWeight:700 }}>{c.releasedUsdc.toLocaleString("en-US")} / {c.totalUsdc.toLocaleString("en-US")} USDC</div>
+                            <div style={{ fontSize:9, color:c.status === "settled" ? "#FCD34D" : "#00FFB2" }}>
+                              {c.status === "settled" ? "settled" : `next check ${c.nextCheckIn}`}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ height:4, background:"rgba(255,255,255,0.05)", borderRadius:4, overflow:"hidden", marginBottom:5 }}>
+                          <div style={{ width:`${pct}%`, height:"100%", background:"linear-gradient(90deg,#00FFB2,#FCD34D)", borderRadius:4 }} />
+                        </div>
+                        <div style={{ fontSize:9, color:AGENT_COLORS[step.owner], fontFamily:"monospace" }}>
+                          {step.owner} executando {step.label}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
                 <div style={{ display:"grid",gridTemplateColumns:"70px 1fr 110px 65px 100px",
                   gap:10,padding:"0 0 8px",borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
                   {["ID","TÍTULO","VALOR","AGENTE","PROGRESSO"].map(h=>(
